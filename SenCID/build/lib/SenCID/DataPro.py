@@ -14,7 +14,11 @@ import sys
 import os
 
 # DCA is optional (requires TensorFlow)
-from dca.api import dca
+try:
+    from dca.api import dca
+    DCA_AVAILABLE = True
+except ImportError:
+    DCA_AVAILABLE = False
 base_path = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(base_path)
 from utils import Mkdir
@@ -85,6 +89,8 @@ def MakeAdata(file, filename, fileclass, add_prefix = False, genenameCol = None)
     return adata
 
 def DCA_mat(adata_ae, threads = 1):
+    if not DCA_AVAILABLE:
+        raise ImportError("DCA requires TensorFlow. Install with: pip install 'SenCID[denoising]'")
     dca(adata_ae, threads=threads)
     subcount = pd.DataFrame(adata_ae.X)
     subcount.index = adata_ae.obs_names
@@ -112,7 +118,11 @@ def ScaleData(adata, denoising = True, threads = 1, savetmp = False):
     subcount_raw.columns = adata_ae.var_names
         
     if denoising:
-        subdata_count = DCA_mat(adata_ae, threads = threads)
+        if not DCA_AVAILABLE:
+            print('Warning: DCA not available (TensorFlow not installed). Skipping denoising.')
+            subdata_count = subcount_raw.T
+        else:
+            subdata_count = DCA_mat(adata_ae, threads = threads)
     else: 
         subdata_count = subcount_raw.T
 

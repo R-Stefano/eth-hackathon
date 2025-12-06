@@ -1,0 +1,3 @@
+The objective is to engineer a "Dynamic Model Control" system that does not merely identify or kill senescent cells but actively steers them from low-visibility, evasive states into "High-Immunogenicity" trajectories amenable to T-cell targeting. 
+
+By leveraging the high-dimensional single-cell trajectory and Perturb-seq data provided by the SenCID study, we aim to develop a computational workflow that predicts the precise genetic or pharmacological perturbations required to modulate the senescent state vector toward enhanced MHC-I presentation and biomarker visibility.

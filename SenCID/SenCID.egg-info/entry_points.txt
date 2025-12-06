@@ -1,0 +1,2 @@
+[console_scripts]
+SenCID = SenCID.__main__:main

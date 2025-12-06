@@ -1,0 +1,17 @@
+numpy>=1.19.1
+pandas
+scanpy>=1.6.0
+anndata>=0.7.2
+h5py
+scipy
+scikit-learn
+joblib
+absl-py>=0.11.0
+
+[denoising]
+tensorflow>=2.0
+keras>=2.4
+dca>=0.3.2
+pyyaml<=5.4.1
+kopt
+six>=1.10.0
