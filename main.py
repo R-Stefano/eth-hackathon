@@ -4,15 +4,15 @@ import model
 import env
 
 # Configuration
-SEED = 42
-NUM_EPISODES = 100
-MAX_STEPS_PER_EPISODE = 10
+from configs import SEED, NUM_EPISODES, MAX_STEPS_PER_EPISODE, VERBOSE, HARDOCODED_REWARD, AVAILABLE_GENES_TO_INTERVENE
 
+
+from configs import TARGET_SID
 
 def setup_plot():
     """Setup interactive matplotlib plot."""
     plt.ion()  # Enable interactive mode
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
+    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(10, 10))
     
     # Reward plot
     ax1.set_xlabel('Episode')
@@ -29,18 +29,33 @@ def setup_plot():
     line2, = ax2.plot([], [], 'r-', label='Loss', linewidth=2)
     ax2.legend()
     
+    # Winning SID plot
+    ax3.set_xlabel('Episode')
+    ax3.set_ylabel('Winning SID')
+    ax3.set_title(f'Winning SID per Episode (Target: {TARGET_SID})')
+    ax3.grid(True, alpha=0.3)
+    ax3.set_ylim(0.5, 6.5)
+    ax3.set_yticks([1, 2, 3, 4, 5, 6])
+    ax3.set_yticklabels(['SID1', 'SID2', 'SID3', 'SID4', 'SID5', 'SID6'])
+    line3, = ax3.plot([], [], 'go-', label='Winning SID', linewidth=2, markersize=4)
+    # Add target line
+    target_idx = int(TARGET_SID.split('SID')[1])
+    ax3.axhline(y=target_idx, color='red', linestyle='--', label=f'Target ({TARGET_SID})', alpha=0.7)
+    ax3.legend()
+    
     plt.tight_layout()
-    plt.show(block=False)  # Show window immediately without blocking
+    plt.show(block=False)
     fig.canvas.draw()
     fig.canvas.flush_events()
     
-    return fig, ax1, ax2, line1, line2
+    return fig, ax1, ax2, ax3, line1, line2, line3
 
 
-def update_plot(fig, ax1, ax2, line1, line2, episodes, rewards_history, losses_history):
+def update_plot(fig, ax1, ax2, ax3, line1, line2, line3, episodes, rewards_history, losses_history, sid_history):
     """Update plot with new data."""
     line1.set_data(episodes, rewards_history)
     line2.set_data(episodes, losses_history)
+    line3.set_data(episodes, sid_history)
     
     # Adjust axes limits
     ax1.set_xlim(0, max(episodes) + 1)
@@ -49,10 +64,12 @@ def update_plot(fig, ax1, ax2, line1, line2, episodes, rewards_history, losses_h
     ax2.set_xlim(0, max(episodes) + 1)
     ax2.set_ylim(min(losses_history) - 0.1, max(losses_history) + 0.1)
     
+    ax3.set_xlim(0, max(episodes) + 1)
+    
     # Force redraw
     fig.canvas.draw_idle()
     fig.canvas.flush_events()
-    plt.pause(0.1)  # Longer pause to ensure update is visible
+    plt.pause(0.1)
 
 
 def main():
@@ -60,18 +77,21 @@ def main():
     model.set_seed(SEED)
     
     print(f"Training for {NUM_EPISODES} episodes with seed {SEED}")
+    print("AVAILABLE_GENES_TO_INTERVENE", len(AVAILABLE_GENES_TO_INTERVENE))
     
     # Setup real-time plot
-    fig, ax1, ax2, line1, line2 = setup_plot()
+    fig, ax1, ax2, ax3, line1, line2, line3 = setup_plot()
     episodes_list = []
     rewards_history = []
     losses_history = []
+    sid_history = []
     
     for episode in range(NUM_EPISODES):
         cell_state = env.reset()
         
         log_probs = []
         rewards = []
+        winning_sid_idx = 1  # default
         
         for step in range(MAX_STEPS_PER_EPISODE):
             # Pick action and get log probability
@@ -81,26 +101,39 @@ def main():
             # Take step in environment
             cell_state_next, sid_scores, terminated = env.perform_step(cell_state, (action_gene, action_type))
             
+            # Get winning SID
+            winning_sid, winning_sid_idx = env.get_winning_sid(sid_scores)
+            
+            if VERBOSE:
+                print(f"Step {step+1}: {action_gene} {action_type} -> Winning: {winning_sid}")
+
             # Calculate reward
             reward = env.get_reward(sid_scores)
+            if HARDOCODED_REWARD:
+                if (action_gene == "HLA-B" and action_type == "ON"):
+                    reward = 1.0
+                else:
+                    reward = -1.0
             rewards.append(reward.item() if hasattr(reward, 'item') else reward)
             
-            print(f"Episode {episode+1}, Step {step+1}: {action_gene} {action_type}, Reward: {reward:.3f}")
-            
             if terminated:
+                print(f"  🎯 SUCCESS! Reached target {TARGET_SID} at step {step+1}")
                 break
             cell_state = cell_state_next
         
         # Update policy with collected trajectory
         loss = model.update_policy(log_probs, rewards)
         total_reward = sum(rewards)
-        print(f"\n=== Episode {episode+1} finished: Total Reward = {total_reward:.3f}, Loss = {loss:.4f} ===\n")
+        
+        status = "✓" if terminated else "○"
+        print(f"{status} Episode {episode+1}: Steps={len(rewards)}, Reward={total_reward:.3f}, Loss={loss:.4f}, Final SID=SID{winning_sid_idx}")
         
         # Update plot
         episodes_list.append(episode + 1)
         rewards_history.append(total_reward)
         losses_history.append(loss)
-        update_plot(fig, ax1, ax2, line1, line2, episodes_list, rewards_history, losses_history)
+        sid_history.append(winning_sid_idx)
+        update_plot(fig, ax1, ax2, ax3, line1, line2, line3, episodes_list, rewards_history, losses_history, sid_history)
     
     # Save and show plot
     plt.ioff()

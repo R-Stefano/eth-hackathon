@@ -28,21 +28,20 @@ class SimplePolicyNetwork(nn.Module):
         return F.softmax(x, dim=-1)
 
 
-AVAILABLE_GENES_TO_INTERVENE = ["HLA-B", "TAP1", "CDKN1A", "CDKN2A"]
-AVAILABLE_ACTIONS = ["ON", "OFF"]
-OUTPUT_SIZE = len(AVAILABLE_GENES_TO_INTERVENE) * len(AVAILABLE_ACTIONS)
-HIDDEN_SIZE = 64
-INPUT_SIZE = 1290  # Number of senescence-related genes after ScaleData
+from configs import VERBOSE, INPUT_SIZE, HIDDEN_SIZE, OUTPUT_SIZE, LR_RATE, AVAILABLE_GENES_TO_INTERVENE, AVAILABLE_ACTIONS
 
 # Initialize model and optimizer
 policy_net = SimplePolicyNetwork(input_size=INPUT_SIZE, hidden_size=HIDDEN_SIZE, output_size=OUTPUT_SIZE)
-optimizer = optim.Adam(policy_net.parameters(), lr=1e-3)
+optimizer = optim.Adam(policy_net.parameters(), lr=LR_RATE)
 
 
 def pick_action(state) -> Tuple[str, str, torch.Tensor]:
     """Pick an action and return log probability for training."""
     state_tensor = torch.tensor(state.expression_norm.values.astype(np.float32).reshape(1, -1))
     probs = policy_net(state_tensor)
+    
+    if VERBOSE:
+        print(f"  Action probs: ON={probs[0,0].item():.3f}, OFF={probs[0,1].item():.3f}")
     
     # Sample action
     dist = torch.distributions.Categorical(probs)
