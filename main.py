@@ -18,32 +18,23 @@ def main():
     cell_id = np.random.choice(counts.index)
     cell_state = CellState(cell_id=cell_id, expression=counts.loc[cell_id])
     print(f"Sampled cell: {cell_id}")
+
+    # # Get original SID scores
+    # print("\nRunning SenCID on original cell...")
+    # orig_adata = sc.AnnData(pd.DataFrame([cell_state.expression]))
+    # orig_adata.obs_names = [cell_state.cell_id]
+    # pred_orig, rec_orig, _ = SenCID(orig_adata, denoising=False, binarize=True)
+
+    # Pick and apply intervention
+    action_gene, action_type = model.pick_action(cell_state)
+    print(f"\nApplying intervention: {action_gene} -> {action_type}")
     
-    # Apply intervention
-    target_genes = ["HLA-B", "TAP1", "CDKN1A", "CDKN2A"]
-    intervened_state, intervention = random_intervention(original_state, target_genes)
-    print(f"Intervention: {intervention.action} {intervention.gene} by {intervention.magnitude:.2f}x")
+    cell_state_next, sid_scores = env.perform_step(cell_state, (action_gene, action_type))
     
-    # Build AnnData for both states
-    orig_adata = sc.AnnData(pd.DataFrame([original_state.expression]))
-    orig_adata.obs_names = [original_state.cell_id]
+    # Calculate reward
+    reward = env.get_reward(sid_scores)
+    print(f"\nAction: {action_gene} {action_type}, Reward: {reward:.3f}")
     
-    int_adata = sc.AnnData(pd.DataFrame([intervened_state.expression]))
-    int_adata.obs_names = [intervened_state.cell_id]
-    
-    # Run SenCID
-    print("\nRunning SenCID...")
-    pred_orig, rec_orig, _ = SenCID(orig_adata, denoising=False, binarize=True, )
-    pred_int, rec_int, _ = SenCID(int_adata, denoising=False, binarize=True)
-    
-    # Results
-    print("\n--- SID Scores ---")
-    print(f"{'SID':<6} {'Original':>10} {'Intervened':>12} {'Delta':>10}")
-    for sid in pred_orig:
-        orig = pred_orig[sid]['SID_Score'].values[0]
-        new = pred_int[sid]['SID_Score'].values[0]
-        delta = new - orig
-        print(f"{sid:<6} {orig:>10.3f} {new:>12.3f} {delta:>+10.3f}")
 
 if __name__ == "__main__":
     main()
