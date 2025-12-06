@@ -27,6 +27,8 @@ class Intervention:
     action: Literal["increase", "decrease"]
     magnitude: float  # fold change
 
+
+
 def apply_intervention(state: CellState, intervention: Intervention) -> CellState:
     """Apply a gene intervention to a cell state."""
     new_expression = state.expression.copy()
@@ -58,12 +60,12 @@ def apply_intervention(state: CellState, intervention: Intervention) -> CellStat
 
 def random_intervention(state: CellState, gene_list: Optional[List[str]] = None) -> Tuple[CellState, Intervention]:
     """Generate and apply a random intervention based on current expression."""
-    # Use provided genes or all genes
-    available_genes = gene_list if gene_list else list(state.expression.index)
-    
+    available_genes_to_intervene = ["HLA-B", "TAP1", "CDKN1A", "CDKN2A"]
+
     # Pick random gene
-    gene = np.random.choice(available_genes)
+    gene = np.random.choice(available_genes_to_intervene)
     current_expr = state.expression[gene]
+    print(current_expr)
     
     # Decide action based on current expression level
     # If expression is high, decrease; if low, increase
@@ -77,5 +79,3 @@ def random_intervention(state: CellState, gene_list: Optional[List[str]] = None)
     new_state = apply_intervention(state, intervention)
     
     return new_state, intervention
-
-
