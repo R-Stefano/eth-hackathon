@@ -13,8 +13,8 @@ import scanpy as sc
 import sys
 import os
 
-# DCA is optional (requires TensorFlow)
-from dca.api import dca
+# DCA is optional (requires TensorFlow) - imported lazily when needed
+dca = None
 base_path = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(base_path)
 from utils import Mkdir
@@ -85,6 +85,7 @@ def MakeAdata(file, filename, fileclass, add_prefix = False, genenameCol = None)
     return adata
 
 def DCA_mat(adata_ae, threads = 1):
+    from dca.api import dca
     dca(adata_ae, threads=threads)
     subcount = pd.DataFrame(adata_ae.X)
     subcount.index = adata_ae.obs_names
@@ -97,7 +98,6 @@ def ScaleData(adata, denoising = True, threads = 1, savetmp = False):
     sene = pd.read_csv(str(base_path)+'/resource/seneset.txt', sep = '\t', index_col = None, header=None)
     sene.columns = ['Gene']
     #sene.Gene = 'GRCh38premrna_'+sene.Gene
-    print('Scaling data...')
     seneGenes = list(set(adata.var_names) & set(sene.Gene))
     assert len(seneGenes)>10, 'Features of count data should be hgnc symbol: BIRC5, BRCA1, etc'
     adata_ae = adata[:,seneGenes].copy()

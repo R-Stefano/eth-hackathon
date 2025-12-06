@@ -10,14 +10,7 @@ import pandas as pd
 from dataclasses import dataclass
 from typing import Literal, Optional, List, Tuple, Dict
 import sys
-
-
-@dataclass
-class CellState:
-    """Represents a cell's expression state before/after intervention."""
-    cell_id: str
-    expression: pd.Series
-    intervention: Optional[Dict] = None  # {gene, action, magnitude}
+from env import CellState
 
 
 @dataclass 
