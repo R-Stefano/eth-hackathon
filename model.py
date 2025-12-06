@@ -114,48 +114,75 @@ class ActorCritic(nn.Module):
         lr: float = LR_RATE,
         epsilon_start: float = 0.9,
         epsilon_end: float = 0.05,
-        epsilon_decay_episodes: int = 100
+        epsilon_decay_episodes: int = 100,
+        dropout: float = 0.1
     ):
         super(ActorCritic, self).__init__()
         
-        # Shared feature extractor
-        self.shared = nn.Sequential(
-            nn.Linear(input_size, 512),
-            nn.ReLU(),
-            nn.Linear(512, 512),
-            nn.ReLU(),
-        )
+        # 1. Wide Input Projection (Input -> Hidden)
+        # Using LayerNorm immediately to handle Z-scored sparse inputs
+        self.input_proj = nn.Linear(input_size, hidden_size)
+        self.ln_in = nn.LayerNorm(hidden_size)
+        self.dropout = nn.Dropout(dropout)
         
-        # Actor head (policy)
-        self.actor = nn.Sequential(
-            nn.Linear(512, 512),
-            nn.ReLU(),
-            nn.Linear(512, output_size),
-        )
+        # 2. Residual Block 1 (The "Thinking" Block)
+        self.res1_fc1 = nn.Linear(hidden_size, hidden_size)
+        self.res1_ln1 = nn.LayerNorm(hidden_size)
+        self.res1_fc2 = nn.Linear(hidden_size, hidden_size)
+        self.res1_ln2 = nn.LayerNorm(hidden_size)
         
-        # Critic head (value function)
-        self.critic = nn.Sequential(
-            nn.Linear(512, 256),
-            nn.ReLU(),
-            nn.Linear(256, 1),
-        )
+        # 3. Residual Block 2 (Deep reasoning)
+        self.res2_fc1 = nn.Linear(hidden_size, hidden_size)
+        self.res2_ln1 = nn.LayerNorm(hidden_size)
+        self.res2_fc2 = nn.Linear(hidden_size, hidden_size)
+        self.res2_ln2 = nn.LayerNorm(hidden_size)
+        
+        # 4. Separate Heads
+        self.actor_head = nn.Linear(hidden_size, output_size)
+        self.critic_head = nn.Linear(hidden_size, 1)
+        
+        # Activation: GELU is smoother than ReLU and handles negatives better
+        self.act = nn.GELU()
         
         self.optimizer = optim.Adam(self.parameters(), lr=lr)
         
-        # Epsilon-greedy exploration
-        self.epsilon_start = epsilon_start
+        # Exploration parameters
         self.epsilon = epsilon_start
         self.epsilon_end = epsilon_end
         self.epsilon_decay_episodes = epsilon_decay_episodes
         self.output_size = output_size
         self.episode_count = 0
-    
+
+    def forward_shared(self, x):
+        # Input Projection
+        x = self.act(self.ln_in(self.input_proj(x)))
+        x = self.dropout(x)
+        
+        # ResBlock 1
+        identity = x
+        out = self.act(self.res1_ln1(self.res1_fc1(x)))
+        out = self.res1_ln2(self.res1_fc2(out)) # No act on second linear usually in ResNet
+        x = self.act(out + identity)  # Add Residual
+        
+        # ResBlock 2
+        identity = x
+        out = self.act(self.res2_ln1(self.res2_fc1(x)))
+        out = self.res2_ln2(self.res2_fc2(out))
+        x = self.act(out + identity)
+        
+        return x
+
     def forward(self, x):
         """Returns (action_probs, state_value)."""
-        features = self.shared(x)
-        action_logits = self.actor(features)
+        features = self.forward_shared(x)
+        
+        # Actor
+        action_logits = self.actor_head(features)
         action_probs = F.softmax(action_logits, dim=-1)
-        state_value = self.critic(features)
+        
+        # Critic
+        state_value = self.critic_head(features)
+        
         return action_probs, state_value
     
     def decay_epsilon(self):
