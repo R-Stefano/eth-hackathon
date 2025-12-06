@@ -21,8 +21,12 @@ class CellState:
 
 _counts_cache = None
 
-def reset() -> CellState:
-    """Reset the environment to the initial state."""
+def reset(cell_index: int = None) -> CellState:
+    """Reset the environment to the initial state.
+    
+    Args:
+        cell_index: Integer index of cell to use (default: 0 = first cell)
+    """
     global _counts_cache
     
     # Cache the data to avoid reloading every episode
@@ -30,8 +34,10 @@ def reset() -> CellState:
         _counts_cache = pd.read_csv('SenCID/SenCID/demo/demo/origin_matrix_GSE94980.txt', sep='\t', index_col=0).T
         print(f"Loaded: {_counts_cache.shape[0]} cells x {_counts_cache.shape[1]} genes from GSE94980.txt")
     
-    # Hardcoded cell for reproducibility
-    cell_id = _counts_cache.index[0]  # Always use first cell
+    if cell_index is None:
+        cell_index = np.random.randint(0, len(_counts_cache))
+    # Use integer index to get cell
+    cell_id = _counts_cache.index[cell_index]
     expression = _counts_cache.loc[cell_id]
     adata = sc.AnnData(pd.DataFrame([expression]))
     adata.obs_names = [cell_id]
@@ -57,8 +63,6 @@ def perform_step(cell_state: CellState, action: Tuple[str, str]) -> Tuple[CellSt
     gene, action_type = action
 
     data_scaled = cell_state.expression_norm.copy()
-    if VERBOSE:
-        print("data_scaled: ", data_scaled)
     
     # Apply intervention: ON = max, OFF = min
     if gene not in data_scaled.index:
@@ -107,8 +111,11 @@ def get_reward(sid_scores: Dict, alpha_correct: float = 1.0, alpha_uncertainty: 
     probs = torch.softmax(scores_tensor, dim=0)
     prob_target = probs[target_idx]
 
+    if check_termination(sid_scores):
+        return torch.tensor(1.0)
+
     entropy = -torch.sum(probs * torch.log(probs + eps))
     # Reward the correct class and penalize uncertainty
     reward = alpha_correct * prob_target - alpha_uncertainty * entropy
 
-    return reward
+    return reward.detach()  # Detach: rewards are scalar constants in REINFORCE

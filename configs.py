@@ -1,5 +1,5 @@
 SEED = 42
-NUM_EPISODES = 200  # Reduced for faster debugging
+NUM_EPISODES = 1000  # Reduced for faster debugging
 MAX_STEPS_PER_EPISODE = 10  # Single step per episode for clearer learning signal
 
 # Simplified for debugging - only HLA-B with ON/OFF
@@ -11,7 +11,7 @@ with open("SenCID/SenCID/resource/seneset.txt") as f:
 AVAILABLE_ACTIONS = ["ON", "OFF"]
 TARGET_SID = "SID1"
 OUTPUT_SIZE = len(AVAILABLE_GENES_TO_INTERVENE) * len(AVAILABLE_ACTIONS)  # = 2
-HIDDEN_SIZE = 64
+HIDDEN_SIZE = 512
 INPUT_SIZE = 1290  # Number of senescence-related genes after ScaleData
 LR_RATE = 1e-3
 

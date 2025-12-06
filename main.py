@@ -4,10 +4,18 @@ import model
 import env
 
 # Configuration
-from configs import SEED, NUM_EPISODES, MAX_STEPS_PER_EPISODE, VERBOSE, HARDOCODED_REWARD, AVAILABLE_GENES_TO_INTERVENE
-
-
+from configs import SEED, NUM_EPISODES, MAX_STEPS_PER_EPISODE, VERBOSE, HARDOCODED_REWARD, AVAILABLE_GENES_TO_INTERVENE, INPUT_SIZE, HIDDEN_SIZE, OUTPUT_SIZE, LR_RATE, EPSILON_DECAY_EPISODES  
+from model import REINFORCE, ActorCritic
+import random
+import numpy as np
+import torch
 from configs import TARGET_SID
+
+random.seed(SEED)
+np.random.seed(SEED)
+torch.manual_seed(SEED)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed_all(SEED)
 
 def setup_plot():
     """Setup interactive matplotlib plot."""
@@ -74,11 +82,12 @@ def update_plot(fig, ax1, ax2, ax3, line1, line2, line3, episodes, rewards_histo
 
 def main():
     # Set seed for reproducibility
-    model.set_seed(SEED)
     
     print(f"Training for {NUM_EPISODES} episodes with seed {SEED}")
     print("AVAILABLE_GENES_TO_INTERVENE", len(AVAILABLE_GENES_TO_INTERVENE))
-    
+
+    # model = REINFORCE(input_size=INPUT_SIZE, hidden_size=HIDDEN_SIZE, output_size=OUTPUT_SIZE, lr=LR_RATE, epsilon_decay_episodes=EPSILON_DECAY_EPISODES)
+    model = ActorCritic(input_size=INPUT_SIZE, hidden_size=HIDDEN_SIZE, output_size=OUTPUT_SIZE, lr=LR_RATE, epsilon_decay_episodes=EPSILON_DECAY_EPISODES)
     # Setup real-time plot
     fig, ax1, ax2, ax3, line1, line2, line3 = setup_plot()
     episodes_list = []
@@ -87,16 +96,18 @@ def main():
     sid_history = []
     
     for episode in range(NUM_EPISODES):
-        cell_state = env.reset()
+        cell_state = env.reset(cell_index=0)  # Use first cell
         
         log_probs = []
         rewards = []
+        values = []  # For ActorCritic
         winning_sid_idx = 1  # default
         
         for step in range(MAX_STEPS_PER_EPISODE):
-            # Pick action and get log probability
-            action_gene, action_type, log_prob = model.pick_action(cell_state)
+            # Pick action and get log probability (+ value for ActorCritic)
+            action_gene, action_type, log_prob, value = model.pick_action(cell_state)
             log_probs.append(log_prob)
+            values.append(value)
             
             # Take step in environment
             cell_state_next, sid_scores, terminated = env.perform_step(cell_state, (action_gene, action_type))
@@ -122,11 +133,13 @@ def main():
             cell_state = cell_state_next
         
         # Update policy with collected trajectory
-        loss = model.update_policy(log_probs, rewards)
+        loss = model.update_policy(log_probs, rewards, values)
+        model.decay_epsilon()  # Decay epsilon once per episode
         total_reward = sum(rewards)
-        
-        status = "✓" if terminated else "○"
-        print(f"{status} Episode {episode+1}: Steps={len(rewards)}, Reward={total_reward:.3f}, Loss={loss:.4f}, Final SID=SID{winning_sid_idx}")
+        print(rewards)
+        print(f"Ep {episode+1}: Steps={len(rewards)}, R={total_reward:.3f}, Loss={loss:.4f}, ε={model.epsilon:.3f}, SID={winning_sid_idx}")
+        if (winning_sid_idx == 0):
+            break
         
         # Update plot
         episodes_list.append(episode + 1)
