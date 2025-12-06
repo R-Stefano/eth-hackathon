@@ -2,6 +2,7 @@ import sys
 import numpy as np
 import pandas as pd
 import scanpy as sc
+import torch
 from typing import Tuple, Dict, Optional
 from dataclasses import dataclass
 sys.path.append('SenCID')
@@ -91,7 +92,7 @@ def get_reward(sid_scores: Dict, alpha_correct: float = 1.0, alpha_uncertainty: 
     target_idx = 1
     # Convert scores to probabilities
     # sid_scores = torch.tensor([sid_scores[i] for i in range(6)])
-    sid_scores = torch.tensor([sid_scores[f'SID{i}'] for i in range(6)])
+    sid_scores = torch.tensor([sid_scores[f'SID{i}']['SID_Score'].values[0] for i in range(1, 7)])
     probs = torch.softmax(sid_scores, dim = 0)
     prob_target = probs[target_idx]
 

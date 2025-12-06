@@ -23,13 +23,13 @@ AVAILABLE_GENES_TO_INTERVENE = ["HLA-B", "TAP1", "CDKN1A", "CDKN2A"]
 AVAILABLE_ACTIONS = ["ON", "OFF"]
 output_size = len(AVAILABLE_GENES_TO_INTERVENE) * len(AVAILABLE_ACTIONS)
 hidden_size = 64
-input_size = 49486  # Example input size, adjust as needed
+input_size = 1290  # Number of senescence-related genes after ScaleData
 model = SimplePolicyNetwork(input_size=input_size, hidden_size=hidden_size, output_size=output_size)
 
 def pick_action(state: CellState) -> Tuple[str, float]:
     """Pick a random action for the cell state."""
 
-    probs = model(torch.tensor(state.expression.values.astype(np.float32).reshape(1, -1)))
+    probs = model(torch.tensor(state.expression_norm.values.astype(np.float32).reshape(1, -1)))
     # Recover gene and action from model output
     gene_index = torch.multinomial(probs, 1).item()
     gene = AVAILABLE_GENES_TO_INTERVENE[gene_index // len(AVAILABLE_ACTIONS)]
