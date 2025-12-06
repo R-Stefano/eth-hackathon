@@ -19,15 +19,20 @@ class CellState:
     def __str__(self):
         return f"CellState(cell_id={self.cell_id}, iteration={self.iteration}, genes={self.expression_norm.shape})"
 
+_counts_cache = None
+
 def reset() -> CellState:
     """Reset the environment to the initial state."""
-    # Load data (genes x cells), then transpose for AnnData (cells x genes)
-    counts = pd.read_csv('SenCID/SenCID/demo/demo/origin_matrix_GSE94980.txt', sep='\t', index_col=0).T
-    print(f"Loaded: {counts.shape[0]} cells x {counts.shape[1]} genes from GSE94980.txt")
+    global _counts_cache
     
-    # Sample a cell and create state
-    cell_id = np.random.choice(counts.index)
-    expression = counts.loc[cell_id]
+    # Cache the data to avoid reloading every episode
+    if _counts_cache is None:
+        _counts_cache = pd.read_csv('SenCID/SenCID/demo/demo/origin_matrix_GSE94980.txt', sep='\t', index_col=0).T
+        print(f"Loaded: {_counts_cache.shape[0]} cells x {_counts_cache.shape[1]} genes from GSE94980.txt")
+    
+    # Hardcoded cell for reproducibility
+    cell_id = _counts_cache.index[0]  # Always use first cell
+    expression = _counts_cache.loc[cell_id]
     adata = sc.AnnData(pd.DataFrame([expression]))
     adata.obs_names = [cell_id]
     
@@ -36,7 +41,7 @@ def reset() -> CellState:
     return cell_state
 
 
-def perform_step(cell_state: CellState, action: Tuple[str, str]) -> Tuple[CellState, Dict]:
+def perform_step(cell_state: CellState, action: Tuple[str, str]) -> Tuple[CellState, Dict, bool]:
     """Perform a step in the environment.
     
     1. Apply intervention to gene expression
@@ -71,20 +76,10 @@ def perform_step(cell_state: CellState, action: Tuple[str, str]) -> Tuple[CellSt
     cell_state_next = CellState(cell_id=cell_state.cell_id, expression_norm=data_scaled)
     print("data_scaled", cell_state_next.expression_norm.loc[gene])
     
-    return cell_state_next, pred_dict
+    return cell_state_next, pred_dict, False
 
 
-def get_reward(sid_scores: Dict) -> float:
-    """Calculate reward based on cell state and SID scores.
-    
-    Goal: Push cells toward high immunogenicity (higher MHC-I visibility).
-    We reward lower senescence scores (SID scores closer to 0) and
-    higher expression of immunogenicity markers.
-    """
-    
-    return 1
-
-def get_reward(sid_scores: Dict, alpha_correct: float = 1.0, alpha_uncertainty: float = 0.1, beta: float = 0.1, eps = 1e-9) -> float:
+def get_reward(sid_scores: Dict, alpha_correct: float = 1.0, alpha_uncertainty: float = 0.1, eps: float = 1e-9) -> torch.Tensor:
     """
     Goal: Reward one class and penalize the other 5 classes equally
     Note: Move the reward to the device 
