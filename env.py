@@ -72,3 +72,21 @@ def get_reward(sid_scores: Dict) -> float:
     """
     
     return 1
+
+def get_reward(sid_scores: Dict, alpha_correct: float = 1.0, alpha_uncertainty: float = 0.1, beta: float = 0.1, eps = 1e-9) -> float:
+    """
+    Goal: Reward one class and penalize the other 5 classes equally
+    Note: Move the reward to the device 
+    """
+    target_idx = 1
+    # Convert scores to probabilities
+    # sid_scores = torch.tensor([sid_scores[i] for i in range(6)])
+    sid_scores = torch.tensor([sid_scores[f'SID{i}'] for i in range(6)])
+    probs = torch.softmax(sid_scores, dim = 0)
+    prob_target = probs[target_idx]
+
+    entropy = -torch.sum(probs * torch.log(probs + eps))
+    # Reward the correct class and penalize uncertainty
+    reward = alpha_correct * prob_target - alpha_uncertainty * entropy
+
+    return reward
