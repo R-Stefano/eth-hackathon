@@ -21,7 +21,7 @@ class CellState:
 
 _counts_cache = None
 
-def reset(cell_index: int = None) -> CellState:
+def reset(cell_index: int = None, max_cells_number: int = None) -> CellState:
     """Reset the environment to the initial state.
     
     Args:
@@ -34,8 +34,13 @@ def reset(cell_index: int = None) -> CellState:
         _counts_cache = pd.read_csv('SenCID/SenCID/demo/demo/origin_matrix_GSE94980.txt', sep='\t', index_col=0).T
         print(f"Loaded: {_counts_cache.shape[0]} cells x {_counts_cache.shape[1]} genes from GSE94980.txt")
     
-    if cell_index is None:
+    if cell_index is None and max_cells_number is None:
         cell_index = np.random.randint(0, len(_counts_cache))
+    elif cell_index is None and max_cells_number is not None:
+        cell_index = np.random.randint(0, max_cells_number)
+    else:
+        cell_index = cell_index
+    print(f"Using cell index: {cell_index}")
     # Use integer index to get cell
     cell_id = _counts_cache.index[cell_index]
     expression = _counts_cache.loc[cell_id]

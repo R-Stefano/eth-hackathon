@@ -78,6 +78,7 @@ def update_plot(fig, ax1, ax2, ax3, line1, line2, line3, episodes, rewards_histo
     fig.canvas.draw_idle()
     fig.canvas.flush_events()
     plt.pause(0.1)
+    plt.savefig('training_progress.png', dpi=150, bbox_inches='tight')
 
 
 def main():
@@ -96,7 +97,7 @@ def main():
     sid_history = []
     
     for episode in range(NUM_EPISODES):
-        cell_state = env.reset(cell_index=0)  # Use first cell
+        cell_state = env.reset(cell_index=None, max_cells_number=10)  # Use first cell
         
         log_probs = []
         rewards = []
@@ -136,7 +137,6 @@ def main():
         loss = model.update_policy(log_probs, rewards, values)
         model.decay_epsilon()  # Decay epsilon once per episode
         total_reward = sum(rewards)
-        print(rewards)
         print(f"Ep {episode+1}: Steps={len(rewards)}, R={total_reward:.3f}, Loss={loss:.4f}, ε={model.epsilon:.3f}, SID={winning_sid_idx}")
         if (winning_sid_idx == 0):
             break
@@ -147,12 +147,6 @@ def main():
         losses_history.append(loss)
         sid_history.append(winning_sid_idx)
         update_plot(fig, ax1, ax2, ax3, line1, line2, line3, episodes_list, rewards_history, losses_history, sid_history)
-    
-    # Save and show plot
-    plt.ioff()
-    fig.savefig('training_progress.png', dpi=150, bbox_inches='tight')
-    print("Plot saved to training_progress.png")
-    plt.show()
 
 
 if __name__ == "__main__":
