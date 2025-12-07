@@ -3,11 +3,13 @@ import numpy as np
 import pandas as pd
 import scanpy as sc
 import torch
-from typing import Tuple, Dict, Optional
+from typing import Tuple, Dict, Optional, List
 from dataclasses import dataclass
 sys.path.append('SenCID')
 from SenCID.DataPro import ScaleData
 from SenCID.Pred import Pred, Recommend
+sidnums = [1, 2, 3, 4, 5, 6]
+from configs import VERBOSE, TARGET_SID, SOURCE_SIDS
 
 @dataclass
 class CellState:
@@ -19,7 +21,35 @@ class CellState:
     def __str__(self):
         return f"CellState(cell_id={self.cell_id}, iteration={self.iteration}, genes={self.expression_norm.shape})"
 
-_counts_cache = None
+dataset = None
+
+def _filter_dataset(dataset: pd.DataFrame, source_sids: List[str]) -> pd.DataFrame:
+    """Filter the dataset to only include cells from the source SID classes (batch processing)."""
+    print(f"Filtering for cells with winning SID in {source_sids}...")
+    
+    # Batch process all cells at once
+    # dataset is already cells x genes (200 x 49486)
+    adata = sc.AnnData(dataset)  # AnnData expects obs (cells) x var (genes)
+    
+    # Scale all cells in one batch
+    data_scaled, _ = ScaleData(adata=adata, denoising=False, threads=1, savetmp=False)
+    
+    # Get SID predictions for all cells at once
+    pred_dict = {}
+    for sidnum in sidnums:
+        pred_result = Pred(data_scaled, sidnum, binarize=True)
+        pred_dict[f'SID{sidnum}'] = pred_result['SID_Score']
+    
+    # Find winning SID for each cell
+    scores_df = pd.DataFrame(pred_dict, index=dataset.index)
+    winning_sids = scores_df.idxmax(axis=1)
+    
+    # Filter cells
+    keep_mask = winning_sids.isin(source_sids)
+    filtered = dataset.loc[keep_mask]
+    
+    print(f"  Kept {len(filtered)}/{len(dataset)} cells from {source_sids}")
+    return filtered
 
 def reset(cell_index: int = None, max_cells_number: int = None) -> CellState:
     """Reset the environment to the initial state.
@@ -27,23 +57,25 @@ def reset(cell_index: int = None, max_cells_number: int = None) -> CellState:
     Args:
         cell_index: Integer index of cell to use (default: 0 = first cell)
     """
-    global _counts_cache
+    global dataset
     
     # Cache the data to avoid reloading every episode
-    if _counts_cache is None:
-        _counts_cache = pd.read_csv('SenCID/SenCID/demo/demo/origin_matrix_GSE94980.txt', sep='\t', index_col=0).T
-        print(f"Loaded: {_counts_cache.shape[0]} cells x {_counts_cache.shape[1]} genes from GSE94980.txt")
-    
+    if dataset is None:
+        dataset = pd.read_csv('SenCID/SenCID/demo/demo/origin_matrix_GSE94980.txt', sep='\t', index_col=0).T
+        print(f"Loaded: {dataset.shape[0]} cells x {dataset.shape[1]} genes from GSE94980.txt")
+        dataset = _filter_dataset(dataset, SOURCE_SIDS)
+        print(f"Filtered: {dataset.shape[0]} cells x {dataset.shape[1]} genes from GSE94980.txt")
+
     if cell_index is None and max_cells_number is None:
-        cell_index = np.random.randint(0, len(_counts_cache))
+        cell_index = np.random.randint(0, len(dataset))
     elif cell_index is None and max_cells_number is not None:
-        cell_index = np.random.randint(0, max_cells_number)
+        cell_index = np.random.randint(0, min(max_cells_number, len(dataset)))
     else:
         cell_index = cell_index
-    print(f"Using cell index: {cell_index}")
+
     # Use integer index to get cell
-    cell_id = _counts_cache.index[cell_index]
-    expression = _counts_cache.loc[cell_id]
+    cell_id = dataset.index[cell_index]
+    expression = dataset.loc[cell_id]
     adata = sc.AnnData(pd.DataFrame([expression]))
     adata.obs_names = [cell_id]
     
@@ -51,7 +83,6 @@ def reset(cell_index: int = None, max_cells_number: int = None) -> CellState:
     cell_state = CellState(cell_id=cell_id, expression_norm=data_scaled)
     return cell_state
 
-from configs import VERBOSE, TARGET_SID
 def perform_step(cell_state: CellState, action: Tuple[str, str]) -> Tuple[CellState, Dict, bool]:
     """Perform a step in the environment.
     
@@ -80,7 +111,6 @@ def perform_step(cell_state: CellState, action: Tuple[str, str]) -> Tuple[CellSt
     if VERBOSE:
         print(f"Set {gene} to {data_scaled.loc[gene].values[0]:.3f} ({action_type})")
     
-    sidnums = [1, 2, 3, 4, 5, 6]
     pred_list = [Pred(data_scaled, sidnum, binarize=True) for sidnum in sidnums]
     pred_dict = dict(zip(['SID' + str(n) for n in sidnums], pred_list))
 

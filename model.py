@@ -41,12 +41,14 @@ class REINFORCE(nn.Module):
         return F.softmax(x, dim=-1)
     
     def decay_epsilon(self):
-        """Decay epsilon after each episode."""
-        self.epsilon = max(self.epsilon_end, self.epsilon * (1 - 1 / self.epsilon_decay_episodes))
+        """Decay epsilon linearly to reach epsilon_end at epsilon_decay_episodes."""
         self.episode_count += 1
+        progress = min(1.0, self.episode_count / self.epsilon_decay_episodes)
+        self.epsilon = self.epsilon_start - (self.epsilon_start - self.epsilon_end) * progress
     
     def reset_epsilon(self):
         self.epsilon = self.epsilon_start
+        self.episode_count = 0
 
     def update_policy(self, log_probs: list, rewards: list, gamma: float = 0.99):
         """Update policy using REINFORCE algorithm."""
@@ -74,20 +76,43 @@ class REINFORCE(nn.Module):
         
         return loss.item()
 
-    def pick_action(self, state) -> Tuple[str, str, torch.Tensor]:
-        """Pick an action using epsilon-greedy exploration."""
+    def pick_action(self, state, used_actions: set = None) -> Tuple[str, str, torch.Tensor]:
+        """Pick an action using epsilon-greedy exploration.
+        
+        Args:
+            state: Current cell state
+            used_actions: Set of action indices that have already been used in this episode
+        """
+        if used_actions is None:
+            used_actions = set()
+        
         state_tensor = torch.tensor(state.expression_norm.values.astype(np.float32).reshape(1, -1))
         probs = self(state_tensor)
+        
+        # Mask out used actions by setting their probability to 0
+        if used_actions:
+            mask = torch.ones(self.output_size, dtype=torch.bool)
+            for used_idx in used_actions:
+                if used_idx < self.output_size:
+                    mask[used_idx] = False
+            probs = probs * mask.float()
+            # Renormalize to ensure valid probability distribution
+            probs = probs / (probs.sum() + 1e-9)
+        
         dist = torch.distributions.Categorical(probs)
         
         # Epsilon-greedy: random action with probability epsilon
         if random.random() < self.epsilon:
-            # EXPLORE: random action
-            action_idx = torch.tensor(random.randrange(self.output_size))
+            # EXPLORE: random action from available (unused) actions
+            available_actions = [i for i in range(self.output_size) if i not in used_actions]
+            if not available_actions:
+                # All actions used, allow repeats (shouldn't happen with proper episode length)
+                available_actions = list(range(self.output_size))
+            action_idx = torch.tensor(random.choice(available_actions))
             if VERBOSE:
                 print(f"  [EXPLORE ε={self.epsilon:.3f}] Random action: {action_idx.item()}")
         else:
-            # EXPLOIT: sample from policy
+            # EXPLOIT: sample from policy (already masked)
             action_idx = dist.sample()
             if VERBOSE:
                 print(f"  [EXPLOIT ε={self.epsilon:.3f}] Policy action: {action_idx.item()}")
@@ -136,8 +161,14 @@ class ActorCritic(nn.Module):
         self.res2_ln1 = nn.LayerNorm(hidden_size)
         self.res2_fc2 = nn.Linear(hidden_size, hidden_size)
         self.res2_ln2 = nn.LayerNorm(hidden_size)
+
+        # 4. Residual Block 3 (Deep reasoning)
+        self.res3_fc1 = nn.Linear(hidden_size, hidden_size)
+        self.res3_ln1 = nn.LayerNorm(hidden_size)
+        self.res3_fc3 = nn.Linear(hidden_size, hidden_size)
+        self.res3_ln3 = nn.LayerNorm(hidden_size)
         
-        # 4. Separate Heads
+        # 5. Separate Heads
         self.actor_head = nn.Linear(hidden_size, output_size)
         self.critic_head = nn.Linear(hidden_size, 1)
         
@@ -147,6 +178,7 @@ class ActorCritic(nn.Module):
         self.optimizer = optim.Adam(self.parameters(), lr=lr)
         
         # Exploration parameters
+        self.epsilon_start = epsilon_start
         self.epsilon = epsilon_start
         self.epsilon_end = epsilon_end
         self.epsilon_decay_episodes = epsilon_decay_episodes
@@ -170,6 +202,12 @@ class ActorCritic(nn.Module):
         out = self.res2_ln2(self.res2_fc2(out))
         x = self.act(out + identity)
         
+        # ResBlock 3
+        identity = x
+        out = self.act(self.res3_ln1(self.res3_fc1(x)))
+        out = self.res3_ln3(self.res3_fc3(out))
+        x = self.act(out + identity)
+        
         return x
 
     def forward(self, x):
@@ -186,12 +224,14 @@ class ActorCritic(nn.Module):
         return action_probs, state_value
     
     def decay_epsilon(self):
-        """Decay epsilon after each episode."""
-        self.epsilon = max(self.epsilon_end, self.epsilon * (1 - 1 / self.epsilon_decay_episodes))
+        """Decay epsilon linearly to reach epsilon_end at epsilon_decay_episodes."""
         self.episode_count += 1
+        progress = min(1.0, self.episode_count / self.epsilon_decay_episodes)
+        self.epsilon = self.epsilon_start - (self.epsilon_start - self.epsilon_end) * progress
     
     def reset_epsilon(self):
         self.epsilon = self.epsilon_start
+        self.episode_count = 0
     
     def update_policy(self, log_probs: list, rewards: list, values: list, gamma: float = 0.99, 
                       value_coef: float = 0.5, entropy_coef: float = 0.01):
@@ -228,31 +268,68 @@ class ActorCritic(nn.Module):
         
         self.optimizer.zero_grad()
         loss.backward()
+        
+        # Compute gradient norm before optimizer step
+        grad_norm = self.get_gradient_norm()
+        
         self.optimizer.step()
         
-        return loss.item()
+        return loss.item(), grad_norm
     
-    def pick_action(self, state) -> Tuple[str, str, torch.Tensor, torch.Tensor]:
-        """Pick an action using epsilon-greedy exploration.
+    def get_gradient_norm(self) -> float:
+        """Compute total gradient norm across all parameters."""
+        total_norm = 0.0
+        for p in self.parameters():
+            if p.grad is not None:
+                total_norm += p.grad.data.norm(2).item() ** 2
+        return total_norm ** 0.5
+    
+    def pick_action(self, state, used_actions: set = None) -> Tuple[str, str, torch.Tensor, torch.Tensor]:
+        """Pick an action using policy sampling with action masking.
+        
+        For Actor-Critic, we always sample from the policy distribution (not epsilon-greedy).
+        This ensures the log_prob matches the action selection method, which is important
+        for correct policy gradient updates.
+        
+        Args:
+            state: Current cell state
+            used_actions: Set of action indices that have already been used in this episode
         
         Returns: (gene, action_type, log_prob, value)
         """
+        if used_actions is None:
+            used_actions = set()
+        
         state_tensor = torch.tensor(state.expression_norm.values.astype(np.float32).reshape(1, -1))
         probs, value = self(state_tensor)
+        
+        # Mask out used actions by setting their probability to 0
+        if used_actions:
+            mask = torch.ones(self.output_size, dtype=torch.bool)
+            for used_idx in used_actions:
+                if used_idx < self.output_size:
+                    mask[used_idx] = False
+            probs = probs * mask.float()
+            # Renormalize to ensure valid probability distribution
+            probs = probs / (probs.sum() + 1e-9)
+        
+        # Check if all actions are used (shouldn't happen with proper episode length)
+        if probs.sum() < 1e-9:
+            # Fallback: allow repeats by resetting mask
+            probs = self(state_tensor)[0]  # Get original probs
+            probs = probs / probs.sum()
+        
         dist = torch.distributions.Categorical(probs)
         
-        # Epsilon-greedy: random action with probability epsilon
-        if random.random() < self.epsilon:
-            action_idx = torch.tensor(random.randrange(self.output_size))
-            if VERBOSE:
-                print(f"  [EXPLORE ε={self.epsilon:.3f}] Random action: {action_idx.item()}")
-        else:
-            action_idx = dist.sample()
-            if VERBOSE:
-                print(f"  [EXPLOIT ε={self.epsilon:.3f}] Policy action: {action_idx.item()}")
-        
+        # Always sample from policy distribution (on-policy)
+        # The policy distribution already includes exploration through its learned probabilities
+        action_idx = dist.sample()
         log_prob = dist.log_prob(action_idx)
-        
+                
+        if VERBOSE:
+            entropy = dist.entropy().item()
+            print(f"  [Policy Sample] Action: {action_idx.item()} | Entropy: {entropy:.3f} | ε={self.epsilon:.3f}")
+
         # Decode action
         idx = action_idx.item()
         gene = AVAILABLE_GENES_TO_INTERVENE[idx // len(AVAILABLE_ACTIONS)]
